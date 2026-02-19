@@ -4,7 +4,7 @@ Strict JSON format compliance
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -25,6 +25,8 @@ class SuspiciousAccount(BaseModel):
     ring_id: Optional[str] = Field(None, description="RING_XXX if in fraud ring, null otherwise")
     is_mule: Optional[bool] = Field(None, description="True if identified as money mule")
     mule_role: Optional[str] = Field(None, description="Role in fraud ring: 'collector', 'forwarder', 'coordinator'")
+    reduction_factor: Optional[float] = Field(None, description="FP reduction applied (1.0 = none)")
+    fp_type: Optional[str] = Field(None, description="FP indicator: merchant, payroll, business_hub")
     
     class Config:
         json_schema_extra = {
@@ -45,6 +47,9 @@ class FraudRing(BaseModel):
     member_accounts: List[str] = Field(..., description="List of member account IDs")
     pattern_type: str = Field(..., pattern="^(cycle|smurfing|shell_chain)$", description="Type of fraud pattern")
     risk_score: float = Field(..., ge=0, le=100, description="Ring risk score 0-100")
+    pattern_subtype: Optional[str] = Field(None, description="For smurfing: fan_in | fan_out")
+    edges: Optional[List[Dict[str, Any]]] = Field(None, description="Per-edge {source, target, amount, timestamp_iso} for graph viz")
+    temporal_metrics: Optional[Dict[str, Any]] = Field(None, description="Time span, pass-through speed, amount deviation")
     
     class Config:
         json_schema_extra = {

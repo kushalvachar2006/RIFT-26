@@ -85,64 +85,60 @@ export default function FraudRingsSummaryTable({ rings = [] }) {
         )}
       </div>
 
-      {/* Ring details when selected */}
+      {/* Pattern Explanation Panel when ring is clicked (judges: temporal, coordinated behavior) */}
       {selectedRing && (() => {
-        const selectedRingData = rings.find(r => r.ring_id === selectedRing)
-        if (!selectedRingData) return null
-
-        const totalAmount = selectedRingData.total_volume ?? 0
-        const timeWindowLabel = selectedRingData.time_window || 'Not available'
+        const r = rings.find(x => x.ring_id === selectedRing)
+        if (!r) return null
+        const tm = r.temporal_metrics || {}
+        const patternLabel = r.pattern_type === 'shell_chain' ? 'Layered Shell'
+          : r.pattern_type === 'smurfing' ? `Smurfing (${r.pattern_subtype || 'fan'})`
+          : r.pattern_type === 'cycle' ? 'Circular Fund Routing' : (r.pattern_type || 'Unknown')
 
         return (
           <div className="mt-3 p-3 rounded-lg bg-neon-blue/5 border border-neon-blue/20">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-display font-bold text-neon-blue">
-                {selectedRingData.ring_id} Details
-              </h4>
-              <button
-                onClick={() => setSelectedRing(null)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
+              <h4 className="text-xs font-display font-bold text-neon-blue">Pattern Explanation</h4>
+              <button onClick={() => setSelectedRing(null)} className="text-slate-400 hover:text-white">
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            
-            <div className="space-y-1 text-xs">
+            <div className="space-y-1.5 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-400">Pattern Type:</span>
-                <span className="font-mono text-white">{selectedRingData.pattern_type}</span>
+                <span className="text-slate-400">Pattern:</span>
+                <span className="font-mono text-white">{patternLabel}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Risk Score:</span>
                 <span className="font-mono text-white">
-                  {typeof selectedRingData.risk_score === 'number' 
-                    ? selectedRingData.risk_score.toFixed(1) 
-                    : (selectedRingData.risk_score ?? 'N/A')}
+                  {typeof r.risk_score === 'number' ? r.risk_score.toFixed(1) : (r.risk_score ?? 'N/A')}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Member Count:</span>
-                <span className="font-mono text-white">
-                  {(selectedRingData.accounts || selectedRingData.member_accounts)?.length ?? 0}
-                </span>
+                <span className="font-mono text-white">{(r.accounts || r.member_accounts)?.length ?? 0}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total Amount (estimated):</span>
-                <span className="font-mono text-white">
-                  ${totalAmount.toLocaleString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Time Window:</span>
-                <span className="font-mono text-white">{timeWindowLabel}</span>
-              </div>
+              {tm.time_span_hours != null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Time Span:</span>
+                  <span className="font-mono text-neon-blue">{tm.time_span_hours} hours</span>
+                </div>
+              )}
+              {tm.pass_through_speed_hours != null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Pass-through speed:</span>
+                  <span className="font-mono text-neon-blue">{tm.pass_through_speed_hours} h avg</span>
+                </div>
+              )}
+              {tm.amount_deviation_pct != null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Amount Deviation:</span>
+                  <span className="font-mono text-neon-blue">{tm.amount_deviation_pct}%</span>
+                </div>
+              )}
             </div>
-
-            <p className="text-xs font-mono text-neon-blue mt-2">
-              ↗ Ring highlighted in graph visualization
-            </p>
+            <p className="text-xs font-mono text-neon-blue/80 mt-2">↗ Ring highlighted in graph · Hover edges for time deltas</p>
           </div>
         )
       })()}

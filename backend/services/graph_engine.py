@@ -80,14 +80,12 @@ class TransactionGraphEngine:
         # Pre-group by (source, destination) - pandas groupby is O(E)
         edge_groups = self.transactions_df.groupby(['source_account', 'destination_account'], sort=False)
         
-        # Single pass: aggregate amount, get first timestamp
+        # Single pass: aggregate amount, first and last timestamps (for time deltas)
         for (src, dst), group in edge_groups:
-            # Edge attributes: amount (total), timestamp (first occurrence)
             total_amount = float(group['amount'].sum())
             first_timestamp = group['timestamp'].iloc[0]
-            
-            # Add edge with minimal attributes
-            self.graph.add_edge(src, dst, amount=total_amount, timestamp=first_timestamp)
+            last_timestamp = group['timestamp'].iloc[-1] if len(group) > 1 else first_timestamp
+            self.graph.add_edge(src, dst, amount=total_amount, timestamp=first_timestamp, last_timestamp=last_timestamp)
             
             # Ensure nodes exist (NetworkX handles this, but explicit for clarity)
             if src not in self.graph:

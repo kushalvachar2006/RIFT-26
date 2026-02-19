@@ -61,6 +61,8 @@ export const uploadCSV = async (file, onProgress) => {
         ring_id: acc.ring_id,
         is_mule: acc.is_mule || false,
         mule_role: acc.mule_role || null,
+        reduction_factor: acc.reduction_factor ?? 1.0,
+        fp_type: acc.fp_type ?? null,
         // Legacy compatibility
         risk_level: acc.suspicion_score >= 80 ? 'CRITICAL' :
           acc.suspicion_score >= 60 ? 'HIGH' :
@@ -74,14 +76,17 @@ export const uploadCSV = async (file, onProgress) => {
         ring_id: ring.ring_id,
         member_accounts: ring.member_accounts,
         accounts: ring.member_accounts,
-        risk_score: ring.risk_score ?? 0, // Include risk_score from backend
+        risk_score: ring.risk_score ?? 0,
         risk_level: ring.risk_score >= 80 ? 'CRITICAL' :
           ring.risk_score >= 60 ? 'HIGH' :
             ring.risk_score >= 40 ? 'MEDIUM' : 'LOW',
         cycle_length: ring.member_accounts?.length || 0,
-        total_volume: (ring.risk_score ?? 0) * 1000, // Estimated volume
+        total_volume: (ring.risk_score ?? 0) * 1000,
         pattern_type: ring.pattern_type,
-        transaction_count: ring.member_accounts?.length || 0
+        pattern_subtype: ring.pattern_subtype,
+        transaction_count: ring.member_accounts?.length || 0,
+        edges: ring.edges || [],
+        temporal_metrics: ring.temporal_metrics || null
       })) ?? []
     }
   } catch (error) {

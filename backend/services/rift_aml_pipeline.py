@@ -6,10 +6,11 @@ Orchestrates complete detection workflow with strict format compliance
 import pandas as pd
 import time
 import logging
-from typing import Dict, List
+import numpy as np
+from typing import Dict, List, Optional, Any, Tuple
 from models import SuspiciousAccount, FraudRing, DetectionSummary, AMLDetectionResponse
 from services import TransactionGraphEngine
-from services.rift_pattern_detection import RIFTPatternDetector
+from services.rift_pattern_detection import RIFTPatternDetector, _distinct_score
 from services.false_positive_control import FalsePositiveController
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,43 @@ class RIFTAMLPipeline:
         
         return df
     
+    def _enrich_edges_temporal(
+        self, g, edges: List[Dict]
+    ) -> Tuple[List[Dict], Optional[Dict[str, Any]]]:
+        """Add timestamp_iso to edges and compute temporal_metrics for pattern panel."""
+        if not g or not edges:
+            return edges, None
+        enriched = []
+        timestamps = []
+        amounts = []
+        for e in edges:
+            src, dst = e.get('source'), e.get('target')
+            e_copy = dict(e)
+            amt = float(e.get('amount', 0.0))
+            if src and dst and g.has_edge(src, dst):
+                ed = g[src][dst]
+                amt = float(e.get('amount', ed.get('amount', 0.0)))
+                ts = ed.get('timestamp') or ed.get('first_timestamp')
+                if ts is not None:
+                    ts_pd = pd.Timestamp(ts)
+                    e_copy['timestamp_iso'] = ts_pd.isoformat()
+                    timestamps.append(ts_pd)
+            amounts.append(amt)
+            enriched.append(e_copy)
+        if not enriched:
+            return edges, None
+        metrics = {}
+        if timestamps:
+            span_sec = (max(timestamps) - min(timestamps)).total_seconds()
+            metrics['time_span_hours'] = round(span_sec / 3600, 2)
+            num_hops = max(1, len(edges))
+            metrics['pass_through_speed_hours'] = round(span_sec / 3600 / num_hops, 2)
+        if amounts:
+            mean_a = np.mean(amounts)
+            std_a = np.std(amounts) if len(amounts) > 1 else 0.0
+            metrics['amount_deviation_pct'] = round(100.0 * std_a / max(mean_a, 1e-9), 2)
+        return enriched, metrics if metrics else None
+    
     def _generate_rift_response(
         self,
         pattern_data: Dict[str, Dict],
@@ -200,6 +238,15 @@ class RIFTAMLPipeline:
             has_strong = bool(pats & STRONG_PATTERNS) or any(p.startswith('cycle_length_') for p in pats)
             
             if suspicion_score >= MIN_THRESHOLD or has_strong or data.get('ring_id'):  
+                fp_ind = data.get('false_positive_indicators', {})
+                rf = data.get('reduction_factor')
+                fp_type = None
+                if fp_ind.get('is_merchant'):
+                    fp_type = 'merchant'
+                elif fp_ind.get('is_payroll'):
+                    fp_type = 'payroll'
+                elif fp_ind.get('is_business_hub'):
+                    fp_type = 'business_hub'
                 suspicious_accounts.append(
                     SuspiciousAccount(
                         account_id=account_id,
@@ -207,7 +254,9 @@ class RIFTAMLPipeline:
                         detected_patterns=data.get('detected_patterns', []),
                         ring_id=data.get('ring_id'),
                         is_mule=data.get('is_mule', False),
-                        mule_role=data.get('mule_role')
+                        mule_role=data.get('mule_role'),
+                        reduction_factor=rf,
+                        fp_type=fp_type
                     )
                 )
                 seen_account_ids.add(account_id)
@@ -215,6 +264,7 @@ class RIFTAMLPipeline:
         # Step 2: Generate fraud rings and ENSURE all cycle members are in suspicious_accounts (RIFT Fault 4)
         fraud_rings = []
         acc_by_id = {a.account_id: a for a in suspicious_accounts}
+        g = self.graph_engine.graph if self.graph_engine else None
         
         if self.pattern_detector:
             cycles = getattr(self.pattern_detector, '_cached_cycles', None) or self.pattern_detector.detect_circular_fund_routing()
@@ -233,7 +283,7 @@ class RIFTAMLPipeline:
                         ))
                         raw_score = raw_data.get('suspicion_score', 88.0) if raw_data else 88.0
                         raw_score = max(min(float(raw_score), 95.0), 85.0)
-                        suspicion_score = round(raw_score, 1)
+                        suspicion_score = _distinct_score(raw_score, account_id)
                         new_acc = SuspiciousAccount(
                             account_id=account_id,
                             suspicion_score=suspicion_score,
@@ -258,25 +308,125 @@ class RIFTAMLPipeline:
                 
                 avg_score = sum(member_scores) / len(member_scores) if member_scores else 0.0
                 cohesion_bonus = 0.0
-                if len(member_accounts) >= 3 and self.graph_engine:
-                    g = self.graph_engine.graph
+                cycle_edges = []
+                if len(member_accounts) >= 3 and g:
                     ring_volume = 0.0
                     for i, aid in enumerate(member_accounts):
                         nxt = member_accounts[(i + 1) % len(member_accounts)]
                         if g.has_edge(aid, nxt):
-                            ring_volume += g[aid][nxt].get('amount', 0.0)
+                            amt = g[aid][nxt].get('amount', 0.0)
+                            ring_volume += amt
+                            cycle_edges.append({'source': aid, 'target': nxt, 'amount': float(amt)})
                     if ring_volume > 10000:
                         cohesion_bonus = min(5.0, ring_volume / 50000)
                 risk_score = round(min(95.0, avg_score + cohesion_bonus), 1)
+                cycle_edges, cycle_temporal = self._enrich_edges_temporal(g, cycle_edges) if cycle_edges else ([], None)
                 
                 fraud_rings.append(
                     FraudRing(
                         ring_id=ring_key,
                         member_accounts=member_accounts,
                         pattern_type=cycle_info['pattern_type'],
-                        risk_score=risk_score
+                        risk_score=risk_score,
+                        edges=cycle_edges if cycle_edges else None,
+                        temporal_metrics=cycle_temporal
                     )
                 )
+        
+        # RIFT: Add fraud rings for shell chains (pattern_type: shell_chain)
+        # Dedup: each unique intermediate chain = ONE ring (no overlapping SHELL_RING_002/003)
+        shell_chains = getattr(self.pattern_detector, '_cached_shell_chains', None) or []
+        for idx, chain_info in enumerate(shell_chains):
+            path = chain_info.get('chain', [])
+            member_accounts = chain_info.get('member_accounts', path[1:-1] if len(path) >= 3 else path)
+            if len(member_accounts) < 1:
+                continue
+            ring_key = f"SHELL_RING_{idx + 1:03d}"
+            risk_score = chain_info.get('risk_score', 55.0)
+            # Only add intermediate nodes to suspicious_accounts (exclude CC endpoints)
+            for acc_id in member_accounts:
+                if acc_id not in seen_account_ids:
+                    raw_data = self.pattern_detector.detected_patterns.get(acc_id, {})
+                    pats = list(set(raw_data.get('detected_patterns', []) + ['shell_chain']))
+                    raw_sc = raw_data.get('suspicion_score', 55.0)
+                    suspicion_score = _distinct_score(min(max(float(raw_sc), 50.0), 65.0), acc_id)
+                    new_acc = SuspiciousAccount(
+                        account_id=acc_id,
+                        suspicion_score=suspicion_score,
+                        detected_patterns=pats,
+                        ring_id=ring_key,
+                        is_mule=raw_data.get('is_mule', False),
+                        mule_role=raw_data.get('mule_role')
+                    )
+                    suspicious_accounts.append(new_acc)
+                    acc_by_id[acc_id] = new_acc
+                    seen_account_ids.add(acc_id)
+            # Edges: per-edge amounts + timestamps (edge hover time deltas)
+            edges = []
+            if g and len(path) >= 2:
+                for i in range(len(path) - 1):
+                    src, dst = path[i], path[i + 1]
+                    if g.has_edge(src, dst):
+                        amt = g[src][dst].get('amount', 0.0)
+                        edges.append({'source': src, 'target': dst, 'amount': float(amt)})
+            edges, shell_temporal = self._enrich_edges_temporal(g, edges) if edges else ([], None)
+            fraud_rings.append(
+                FraudRing(
+                    ring_id=ring_key,
+                    member_accounts=member_accounts,
+                    pattern_type='shell_chain',
+                    risk_score=round(risk_score, 1),
+                    edges=edges if edges else None,
+                    temporal_metrics=shell_temporal
+                )
+            )
+        
+        # RIFT: Add fraud rings for smurfing (pattern_type: smurfing)
+        smurfing_rings = getattr(self.pattern_detector, '_cached_smurfing_rings', None) or []
+        for idx, ring_info in enumerate(smurfing_rings):
+            member_accounts = ring_info.get('member_accounts', [])
+            if len(member_accounts) < 2:
+                continue
+            ring_key = f"SMURF_RING_{idx + 1:03d}"
+            risk_score = ring_info.get('risk_score', 50.0)
+            smurf_edges = []
+            if g and len(member_accounts) >= 2:
+                hub, spokes = member_accounts[0], member_accounts[1:]
+                is_fan_in = ring_info.get('pattern_subtype') == 'fan_in'
+                for spoke in spokes:
+                    src, dst = (spoke, hub) if is_fan_in else (hub, spoke)
+                    if g.has_edge(src, dst):
+                        amt = g[src][dst].get('amount', 0.0)
+                        smurf_edges.append({'source': src, 'target': dst, 'amount': float(amt)})
+            smurf_edges, smurf_temporal = self._enrich_edges_temporal(g, smurf_edges) if smurf_edges else ([], None)
+            for acc_id in member_accounts:
+                if acc_id not in seen_account_ids:
+                    raw_data = pattern_data.get(acc_id, self.pattern_detector.detected_patterns.get(acc_id, {}))
+                    pats = raw_data.get('detected_patterns', []) or ['smurfing']
+                    raw_sc = raw_data.get('suspicion_score', 50.0)
+                    suspicion_score = _distinct_score(min(max(float(raw_sc), 40.0), 65.0), acc_id)
+                    new_acc = SuspiciousAccount(
+                        account_id=acc_id,
+                        suspicion_score=suspicion_score,
+                        detected_patterns=pats,
+                        ring_id=ring_key,
+                        is_mule=raw_data.get('is_mule', False),
+                        mule_role=raw_data.get('mule_role')
+                    )
+                    suspicious_accounts.append(new_acc)
+                    acc_by_id[acc_id] = new_acc
+                    seen_account_ids.add(acc_id)
+            fraud_rings.append(
+                FraudRing(
+                    ring_id=ring_key,
+                    member_accounts=member_accounts,
+                    pattern_type='smurfing',
+                    risk_score=round(risk_score, 1),
+                    pattern_subtype=ring_info.get('pattern_subtype'),
+                    edges=smurf_edges if smurf_edges else None,
+                    temporal_metrics=smurf_temporal
+                )
+            )
         
         # Task 8: Deterministic sort - DESC score, then account_id for ties
         suspicious_accounts.sort(key=lambda x: (-x.suspicion_score, x.account_id))

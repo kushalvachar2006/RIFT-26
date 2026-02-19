@@ -188,8 +188,6 @@ export default function DashboardPage() {
               suspicion_score: typeof acc.suspicion_score === 'number' ? parseFloat(acc.suspicion_score.toFixed(1)) : acc.suspicion_score,
               detected_patterns: acc.patterns_detected || acc.detected_patterns || [],
               ring_id: acc.ring_id ?? null,
-              is_mule: acc.is_mule ?? null,
-              mule_role: acc.mule_role ?? null,
             })),
             fraud_rings: (analysisResult.fraud_rings || []).map(ring => ({
               ring_id: ring.ring_id,
