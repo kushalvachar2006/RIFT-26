@@ -70,20 +70,25 @@ const colorMap = {
   green:    { text: 'text-neon-green',  border: 'border-neon-green/20',  bg: 'bg-neon-green/10',  glow: '' },
 }
 
-export default function MetricCards({ summary }) {
+export default function MetricCards({ summary, onSuspiciousClick }) {
   const cards = metrics(summary)
 
   return (
     <div className="grid grid-cols-2 gap-3">
       {cards.map((card, i) => {
         const c = colorMap[card.color]
+        const isSuspiciousCard = card.label === 'Suspicious Accounts'
+        const clickableProps = isSuspiciousCard && onSuspiciousClick
+          ? { onClick: onSuspiciousClick, role: 'button' }
+          : {}
         return (
           <motion.div
             key={i}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className={`glass-card metric-card p-4 border ${c.border}`}
+            className={`glass-card metric-card p-4 border ${c.border} ${isSuspiciousCard && onSuspiciousClick ? 'cursor-pointer hover:border-orange-400/60' : ''}`}
+            {...clickableProps}
           >
             <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center ${c.text} mb-3`}>
               {card.icon}

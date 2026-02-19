@@ -1,5 +1,6 @@
 """
-Pydantic models for request/response validation
+Pydantic models for RIFT 2026 AML Detection System
+Strict JSON format compliance
 """
 
 from pydantic import BaseModel, Field
@@ -17,57 +18,65 @@ class Transaction(BaseModel):
 
 
 class SuspiciousAccount(BaseModel):
-    """Detected suspicious account"""
+    """Detected suspicious account - RIFT compliant format"""
     account_id: str
-    suspicion_score: float = Field(..., ge=0, le=100)
-    patterns: List[str] = Field(default_factory=list)
-    risk_level: str = Field(default="LOW", pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    suspicion_score: float = Field(..., ge=0, le=100, description="Suspicion score 0-100")
+    detected_patterns: List[str] = Field(..., description="List of all detected patterns")
+    ring_id: Optional[str] = Field(None, description="RING_XXX if in fraud ring, null otherwise")
+    is_mule: Optional[bool] = Field(None, description="True if identified as money mule")
+    mule_role: Optional[str] = Field(None, description="Role in fraud ring: 'collector', 'forwarder', 'coordinator'")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "account_id": "ACC_12345",
                 "suspicion_score": 87.5,
-                "patterns": ["cycle_length_3", "high_velocity", "fan_out"],
-                "risk_level": "HIGH"
+                "detected_patterns": ["cycle_length_3", "high_velocity", "fan_out"],
+                "ring_id": "RING_001",
+                "is_mule": True,
+                "mule_role": "forwarder"
             }
         }
 
 
 class FraudRing(BaseModel):
-    """Detected fraud ring (cycle)"""
-    ring_id: str
-    accounts: List[str]
-    risk_level: str = Field(..., pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")
-    cycle_length: Optional[int] = None
-    total_volume: Optional[float] = None
+    """Detected fraud ring - RIFT compliant format"""
+    ring_id: str = Field(..., description="Unique ring identifier")
+    member_accounts: List[str] = Field(..., description="List of member account IDs")
+    pattern_type: str = Field(..., pattern="^(cycle|smurfing|shell_chain)$", description="Type of fraud pattern")
+    risk_score: float = Field(..., ge=0, le=100, description="Ring risk score 0-100")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "ring_id": "RING_001",
-                "accounts": ["ACC_100", "ACC_200", "ACC_300"],
-                "risk_level": "HIGH",
-                "cycle_length": 3,
-                "total_volume": 125000.50
+                "member_accounts": ["ACC_100", "ACC_200", "ACC_300"],
+                "pattern_type": "cycle",
+                "risk_score": 85.2
             }
         }
 
 
 class DetectionSummary(BaseModel):
-    """Summary statistics"""
-    total_transactions: int
-    unique_accounts: int
-    rings_detected: int
-    high_risk_accounts: int
-    processing_time_seconds: float
-    graph_metrics: Optional[dict] = None
-    suspicious_account_count: Optional[int] = None  # Total suspicious accounts
-    fraud_rings_detected: Optional[int] = None  # Alias for rings_detected
+    """Summary statistics - RIFT compliant format"""
+    total_accounts_analyzed: int = Field(..., description="Total unique accounts processed")
+    suspicious_accounts_flagged: int = Field(..., description="Number of suspicious accounts flagged")
+    fraud_rings_detected: int = Field(..., description="Number of fraud rings detected")
+    processing_time_seconds: float = Field(..., description="Total processing time in seconds")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_accounts_analyzed": 2300,
+                "suspicious_accounts_flagged": 45,
+                "fraud_rings_detected": 12,
+                "processing_time_seconds": 18.5
+            }
+        }
 
 
 class AMLDetectionResponse(BaseModel):
-    """Complete AML detection response"""
+    """Complete AML detection response - Strict RIFT format"""
     suspicious_accounts: List[SuspiciousAccount]
     fraud_rings: List[FraudRing]
     summary: DetectionSummary
@@ -79,23 +88,22 @@ class AMLDetectionResponse(BaseModel):
                     {
                         "account_id": "ACC_12345",
                         "suspicion_score": 87.5,
-                        "patterns": ["cycle_length_3", "high_velocity"]
+                        "detected_patterns": ["cycle_length_3", "high_velocity"],
+                        "ring_id": "RING_001"
                     }
                 ],
                 "fraud_rings": [
                     {
                         "ring_id": "RING_001",
-                        "accounts": ["ACC_100", "ACC_200", "ACC_300"],
-                        "risk_level": "HIGH",
-                        "cycle_length": 3,
-                        "total_volume": 125000.50
+                        "member_accounts": ["ACC_100", "ACC_200", "ACC_300"],
+                        "pattern_type": "cycle",
+                        "risk_score": 85.2
                     }
                 ],
                 "summary": {
-                    "total_transactions": 10500,
-                    "unique_accounts": 2300,
-                    "rings_detected": 12,
-                    "high_risk_accounts": 45,
+                    "total_accounts_analyzed": 2300,
+                    "suspicious_accounts_flagged": 45,
+                    "fraud_rings_detected": 12,
                     "processing_time_seconds": 18.5
                 }
             }

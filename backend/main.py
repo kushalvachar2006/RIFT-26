@@ -1,13 +1,17 @@
 """
 Production Graph-Based AML Detection Engine
-FastAPI microservice for detecting money mule networks and fraud patterns
+RIFT 2026 Compliant - Task 8: Clean production readiness
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 import logging
 from routers import aml_router
+
+# Task 8: Ensure test files are not imported at runtime
+# main.py imports only production routers - no test modules
 
 # Configure logging
 logging.basicConfig(
@@ -30,8 +34,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include routers - Task 3: Only rift_aml_pipeline used (via aml_router)
 app.include_router(aml_router.router, prefix="/api/v1", tags=["AML Detection"])
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    """Task 8: Validate API error handling - 400 for validation errors"""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 
 @app.get("/health")
 async def health_check():

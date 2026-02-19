@@ -66,7 +66,8 @@ class RiskScoringEngine:
             # Normalize to 0-100
             final_score = min(max(final_score, 0.0), 100.0)
             
-            if final_score > 10.0 or account in pattern_data:  # Only include suspicious accounts
+            # Higher threshold for suspicious accounts to improve precision
+            if final_score > 25.0 or account in pattern_data:  # Increased from 10.0 to 25.0
                 risk_scores[account] = {
                     'suspicion_score': round(final_score, 2),
                     'base_score': round(base_score, 2),
@@ -160,21 +161,21 @@ class RiskScoringEngine:
             reduction_factor = 1.0
             
             if is_merchant:
-                reduction_factor *= 0.3  # 70% reduction
+                reduction_factor *= 0.2  # 80% reduction (increased from 70%)
             elif is_payroll:
-                reduction_factor *= 0.4  # 60% reduction
+                reduction_factor *= 0.3  # 70% reduction (increased from 60%)
             elif is_business_hub:
-                reduction_factor *= 0.5  # 50% reduction
+                reduction_factor *= 0.4  # 60% reduction (increased from 50%)
             
             # Additional: amount consistency check
             amount_consistency = self._compute_amount_consistency(account)
             if amount_consistency > 0.7:  # High consistency = likely legitimate
-                reduction_factor *= 0.8
+                reduction_factor *= 0.7  # 30% reduction (increased from 20%)
             
             adjusted_score = score * reduction_factor
             
-            # Only keep if still significant
-            if adjusted_score > 5.0:
+            # Only keep if still significant (higher threshold)
+            if adjusted_score > 10.0:  # Increased from 5.0 to 10.0
                 filtered_scores[account] = adjusted_score
         
         return filtered_scores

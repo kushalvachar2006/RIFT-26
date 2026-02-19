@@ -87,7 +87,7 @@ class PatternDetector:
     
     def detect_cycles(self, min_length: int = 3, max_length: int = 5) -> List[Dict]:
         """
-        Detect cycles (fraud rings) using bounded cycle detection
+        Detect cycles (fraud rings) using NetworkX simple cycles
         
         Args:
             min_length: Minimum cycle length
@@ -100,39 +100,26 @@ class PatternDetector:
         detected_cycles = set()
         
         try:
-            # Limit nodes to check (prioritize by degree for efficiency)
-            nodes_by_degree = sorted(
-                self.graph.nodes(),
-                key=lambda n: self.graph.degree(n),
-                reverse=True
-            )
+            logger.info(f"Starting cycle detection on graph with {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges")
             
-            # Only check top nodes or first 100 nodes
-            nodes_to_check = nodes_by_degree[:min(100, len(nodes_by_degree))]
-            
-            logger.info(f"Checking {len(nodes_to_check)} nodes for cycles...")
-            
-            all_cycles = []
-            
-            # Use a bounded cycle detection for efficiency
-            for i, node in enumerate(nodes_to_check):
-                if i % 20 == 0:
-                    logger.info(f"Cycle detection progress: {i}/{len(nodes_to_check)} nodes")
+            # Performance optimization: limit cycle search for large graphs
+            if self.graph.number_of_nodes() > 1000:
+                # Use degree-based sampling for large graphs
+                high_degree_nodes = [
+                    n for n in self.graph.nodes() 
+                    if self.graph.degree(n) >= 2
+                ][:200]  # Limit to top 200 high-degree nodes
                 
-                cycles_from_node = self._find_cycles_from_node(
-                    node, 
-                    max_length=max_length
-                )
-                all_cycles.extend(cycles_from_node)
-                
-                # Early exit if we found enough cycles
-                if len(all_cycles) > 50:
-                    logger.info("Found sufficient cycles, stopping early")
-                    break
+                # Create subgraph for efficiency
+                subgraph = self.graph.subgraph(high_degree_nodes)
+                all_cycles = list(nx.simple_cycles(subgraph))
+                logger.info(f"Using subgraph optimization: {len(high_degree_nodes)} nodes, {len(all_cycles)} cycles")
+            else:
+                # Use full graph for smaller datasets
+                all_cycles = list(nx.simple_cycles(self.graph))
+                logger.info(f"Using full graph: {len(all_cycles)} cycles")
             
-            logger.info(f"Found {len(all_cycles)} potential cycles")
-            
-            # Remove duplicate cycles (same nodes, different starting points)
+            # Filter by length and remove duplicates
             unique_cycles = []
             for cycle in all_cycles:
                 if min_length <= len(cycle) <= max_length:
@@ -142,9 +129,9 @@ class PatternDetector:
                         detected_cycles.add(normalized)
                         unique_cycles.append(cycle)
             
-            logger.info(f"Found {len(unique_cycles)} unique cycles")
+            logger.info(f"Found {len(unique_cycles)} unique cycles after filtering")
             
-            # Validate cycles temporally
+            # Validate cycles temporally and compute risk
             ring_id = 1
             for cycle in unique_cycles:
                 if self._validate_cycle_temporally(cycle):
@@ -155,12 +142,13 @@ class PatternDetector:
                         'accounts': cycle,
                         'length': len(cycle),
                         'total_volume': total_volume,
-                        'risk_level': self._assess_cycle_risk(cycle, total_volume)
+                        'risk_level': self._assess_cycle_risk(cycle, total_volume),
+                        'pattern_type': 'Cycle Pattern',
+                        'transaction_count': self._count_cycle_transactions(cycle)
                     })
                     ring_id += 1
         
         except Exception as e:
-            # Fallback to simple cycle detection if complex algorithm fails
             logger.error(f"Cycle detection error: {e}")
             import traceback
             traceback.print_exc()
@@ -249,6 +237,17 @@ class PatternDetector:
                 total += edge_data.get('total_amount', 0.0)
         
         return total
+    
+    def _count_cycle_transactions(self, cycle: List[str]) -> int:
+        """Count total transactions in a cycle"""
+        total_txns = 0
+        for i in range(len(cycle)):
+            src = cycle[i]
+            dst = cycle[(i + 1) % len(cycle)]
+            if self.graph.has_edge(src, dst):
+                edge_data = self.graph[src][dst]
+                total_txns += edge_data.get('txn_count', 0)
+        return total_txns
     
     def _assess_cycle_risk(self, cycle: List[str], total_volume: float) -> str:
         """

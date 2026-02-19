@@ -4,12 +4,18 @@ import { useAMLStore } from '../../context/store'
 import { formatAmount } from '../../utils/amlEngine'
 
 const patternDescriptions = {
+  cycle_length_3: 'Circular transaction pattern: 3-node cycle (funds returning to originating account)',
+  cycle_length_4: 'Circular transaction pattern: 4-node cycle (funds returning to originating account)',
+  cycle_length_5: 'Circular transaction pattern: 5-node cycle (funds returning to originating account)',
   cycle:         'Circular transaction pattern: funds returning to originating account (Johnson\'s cycle, length 3–5)',
-  high_velocity: 'High-velocity transfers: receive-to-send latency < 30 min or high burstiness score',
-  fan_in:        'Fan-in aggregation: ≥5 distinct senders within 72h sliding window',
-  fan_out:       'Fan-out dispersal: ≥5 distinct receivers within 72h sliding window',
-  shell_chain:   'Shell pass-through: outgoing/incoming ratio ∈ [0.85, 1.15] — minimal retention',
-  smurfing:      'Smurfing: multiple structured transactions just below $10,000 reporting threshold',
+  high_velocity: 'High-velocity transfers: ≥3 outbound transactions within 60-minute window',
+  fan_in:        'Fan-in aggregation: ≥3 distinct senders within 72h sliding window',
+  fan_out:       'Fan-out dispersal: ≥3 distinct receivers within 72h sliding window',
+  pass_through:  'Pass-through mule behavior: outgoing/incoming ratio > 0.9 with forwarding within 30 minutes',
+  shell_chain:   'Shell pass-through: multi-hop chain with low-degree intermediaries',
+  transaction_burst: 'Transaction burst: ≥200% above baseline activity',
+  risk_propagation: 'Risk propagation: connected to high-risk account (≥70 suspicion score)',
+  smurfing:      'Smurfing: multiple structured transactions just below reporting threshold',
   layering:      'Layering: multi-hop fund movement obscuring the origin trail',
 }
 
@@ -25,7 +31,7 @@ export default function NodeDetailPanel() {
 
   if (!selectedNode) return null
 
-  const { score, riskLevel, patterns, transactionCount, volume, id } = selectedNode
+  const { score, riskLevel, patterns, transactionCount, volume, id, ringId, isMule, muleRole } = selectedNode
 
   const riskColor = riskLevel === 'critical' ? 'pink-400' : riskLevel === 'high' ? 'neon-red' : riskLevel === 'medium' ? 'orange-400' : 'neon-green'
   const riskLabel = riskLevel === 'critical' ? 'CRITICAL' : riskLevel?.toUpperCase()
@@ -83,13 +89,33 @@ export default function NodeDetailPanel() {
               <div className={`text-sm font-display font-black text-${riskColor}`}>{riskLabel}</div>
             </div>
             <div className="bg-slate-800/40 rounded-lg p-3">
-              <div className="text-xs text-slate-500 font-mono mb-1">TX COUNT</div>
-              <div className="text-sm font-display font-black text-white">{transactionCount}</div>
+              <div className="text-xs text-slate-500 font-mono mb-1">SUSPICION SCORE</div>
+              <div className="text-sm font-display font-black text-white">{typeof score === 'number' ? score.toFixed(1) : score}</div>
             </div>
-            <div className="col-span-2 bg-slate-800/40 rounded-lg p-3">
-              <div className="text-xs text-slate-500 font-mono mb-1">TOTAL VOLUME</div>
-              <div className="text-sm font-display font-black text-neon-blue">{formatAmount(volume || 0)}</div>
-            </div>
+            {ringId && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="text-xs text-slate-500 font-mono mb-1">RING ID</div>
+                <div className="text-sm font-display font-black text-neon-red">{ringId}</div>
+              </div>
+            )}
+            {isMule && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="text-xs text-slate-500 font-mono mb-1">MULE ROLE</div>
+                <div className="text-sm font-display font-black text-orange-400">{muleRole || 'Mule'}</div>
+              </div>
+            )}
+            {transactionCount > 0 && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="text-xs text-slate-500 font-mono mb-1">TX COUNT</div>
+                <div className="text-sm font-display font-black text-white">{transactionCount}</div>
+              </div>
+            )}
+            {volume > 0 && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="text-xs text-slate-500 font-mono mb-1">TOTAL VOLUME</div>
+                <div className="text-sm font-display font-black text-neon-blue">{formatAmount(volume)}</div>
+              </div>
+            )}
           </div>
 
           {/* Why flagged */}

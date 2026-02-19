@@ -1,11 +1,12 @@
 """
 Core Graph Engine for Transaction Network Analysis
-Temporal directed graph with efficient attribute computation
+Optimized O(E) construction with minimal attributes for 10K+ transaction performance
 """
 
 import networkx as nx
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
@@ -13,8 +14,8 @@ from collections import defaultdict
 
 class TransactionGraphEngine:
     """
-    Temporal directed graph engine for transaction network analysis
-    Optimized for memory efficiency and fast pattern detection
+    Optimized directed graph engine for transaction network analysis
+    O(E) construction with adjacency lists, pre-grouped transactions, single-pass sorting
     """
     
     def __init__(self):
@@ -22,66 +23,77 @@ class TransactionGraphEngine:
         self.transactions_df = None
         self.account_profiles = defaultdict(dict)
         self.temporal_index = {}
+        self.performance_metrics = {
+            'graph_build_time': 0.0,
+            'edge_construction_time': 0.0,
+            'node_attributes_time': 0.0
+        }
         
     def build_graph(self, transactions_df: pd.DataFrame) -> None:
         """
-        Build temporal directed graph from transaction data
+        Build temporal directed graph from transaction data - O(E) optimized
+        
+        Edge attributes: amount, timestamp (first occurrence)
+        Node attributes: total_in_degree, total_out_degree, total_transactions,
+                         suspicion_score (init 0), detected_patterns (init []), ring_id (init None)
         
         Args:
             transactions_df: DataFrame with columns [transaction_id, source_account, 
                             destination_account, amount, timestamp]
         """
+        build_start = time.time()
         self.transactions_df = transactions_df.copy()
         
-        # Ensure timestamp is datetime
+        # Ensure timestamp is datetime (single pass)
         if not pd.api.types.is_datetime64_any_dtype(self.transactions_df['timestamp']):
             self.transactions_df['timestamp'] = pd.to_datetime(
                 self.transactions_df['timestamp'], 
                 errors='coerce'
             )
         
-        # Sort by timestamp for temporal analysis
-        self.transactions_df = self.transactions_df.sort_values('timestamp')
+        # Sort by timestamp once - O(E log E) but necessary for temporal analysis
+        self.transactions_df = self.transactions_df.sort_values('timestamp').reset_index(drop=True)
         
-        # Build nodes (accounts)
-        unique_accounts = set(self.transactions_df['source_account']).union(
-            set(self.transactions_df['destination_account'])
-        )
-        self.graph.add_nodes_from(unique_accounts)
+        # Pre-group transactions per account for O(E) node attribute computation
+        edge_start = time.time()
+        self._build_edges_optimized()
+        self.performance_metrics['edge_construction_time'] = time.time() - edge_start
         
-        # Build edges with aggregated attributes
-        self._build_edges()
+        # Compute node attributes in single pass - O(V)
+        node_start = time.time()
+        self._compute_node_attributes_optimized()
+        self.performance_metrics['node_attributes_time'] = time.time() - node_start
         
-        # Compute node features
-        self._compute_node_features()
+        # Build temporal index only for larger graphs
+        if len(self.transactions_df) > 5000:
+            self._build_temporal_index()
+        else:
+            self.temporal_index = defaultdict(list)
         
-        # Build temporal index
-        self._build_temporal_index()
+        self.performance_metrics['graph_build_time'] = time.time() - build_start
         
-    def _build_edges(self) -> None:
-        """Build edges with transaction attributes"""
-        # Group transactions by source-destination pairs
-        edge_groups = self.transactions_df.groupby(['source_account', 'destination_account'])
+    def _build_edges_optimized(self) -> None:
+        """
+        Build edges with minimal attributes - O(E) using pre-grouped transactions
+        Edge attributes: amount (sum), timestamp (first)
+        """
+        # Pre-group by (source, destination) - pandas groupby is O(E)
+        edge_groups = self.transactions_df.groupby(['source_account', 'destination_account'], sort=False)
         
+        # Single pass: aggregate amount, get first timestamp
         for (src, dst), group in edge_groups:
-            amounts = group['amount'].values
-            timestamps = group['timestamp'].values
+            # Edge attributes: amount (total), timestamp (first occurrence)
+            total_amount = float(group['amount'].sum())
+            first_timestamp = group['timestamp'].iloc[0]
             
-            # Compute edge attributes
-            edge_attrs = {
-                'total_amount': float(np.sum(amounts)),
-                'txn_count': len(amounts),
-                'avg_amount': float(np.mean(amounts)),
-                'amount_std': float(np.std(amounts)) if len(amounts) > 1 else 0.0,
-                'first_txn': timestamps[0],
-                'last_txn': timestamps[-1],
-                'txn_frequency': self._compute_frequency(timestamps),
-                'rolling_velocity': self._compute_velocity(amounts, timestamps),
-                'time_decay_weight': self._compute_time_decay(timestamps),
-                'amount_variance': float(np.var(amounts)) if len(amounts) > 1 else 0.0
-            }
+            # Add edge with minimal attributes
+            self.graph.add_edge(src, dst, amount=total_amount, timestamp=first_timestamp)
             
-            self.graph.add_edge(src, dst, **edge_attrs)
+            # Ensure nodes exist (NetworkX handles this, but explicit for clarity)
+            if src not in self.graph:
+                self.graph.add_node(src)
+            if dst not in self.graph:
+                self.graph.add_node(dst)
     
     def _compute_frequency(self, timestamps: np.ndarray) -> float:
         """Compute transaction frequency (txns per day)"""
@@ -132,66 +144,46 @@ class TransactionGraphEngine:
         
         return float(np.mean(weights))
     
-    def _compute_node_features(self) -> None:
-        """Compute account-level features"""
+    def _compute_node_attributes_optimized(self) -> None:
+        """
+        Compute node attributes - O(E) using vectorized value_counts
+        Node attributes: total_in_degree, total_out_degree, total_transactions,
+                         suspicion_score (init 0), detected_patterns (init []), ring_id (init None)
+        """
+        df = self.transactions_df
+        # Vectorized: count transactions per account - O(E)
+        src_counts = df['source_account'].value_counts()
+        dst_counts = df['destination_account'].value_counts()
+        # Total transactions = sum of (as source) + (as dest) counts per account
+        all_accounts = set(src_counts.index) | set(dst_counts.index)
+        account_txn_counts = {
+            acc: src_counts.get(acc, 0) + dst_counts.get(acc, 0)
+            for acc in all_accounts
+        }
+        
+        # Set node attributes - O(V)
         for node in self.graph.nodes():
-            # Incoming transactions
-            in_edges = list(self.graph.in_edges(node, data=True))
-            out_edges = list(self.graph.out_edges(node, data=True))
-            
-            in_total = sum(data['total_amount'] for _, _, data in in_edges)
-            out_total = sum(data['total_amount'] for _, _, data in out_edges)
-            
-            in_count = sum(data['txn_count'] for _, _, data in in_edges)
-            out_count = sum(data['txn_count'] for _, _, data in out_edges)
-            
-            # Diversity metrics (number of unique counterparties)
-            in_diversity = len(in_edges)
-            out_diversity = len(out_edges)
-            
-            self.graph.nodes[node]['total_incoming'] = in_total
-            self.graph.nodes[node]['total_outgoing'] = out_total
-            self.graph.nodes[node]['net_flow'] = in_total - out_total
-            self.graph.nodes[node]['in_degree'] = in_diversity
-            self.graph.nodes[node]['out_degree'] = out_diversity
-            self.graph.nodes[node]['total_degree'] = in_diversity + out_diversity
-            self.graph.nodes[node]['in_txn_count'] = in_count
-            self.graph.nodes[node]['out_txn_count'] = out_count
-            
-            # Pass-through ratio
-            if in_total > 0:
-                self.graph.nodes[node]['pass_through_ratio'] = out_total / in_total
-            else:
-                self.graph.nodes[node]['pass_through_ratio'] = 0.0
-            
-            # Diversity index (higher = more diverse, likely legitimate)
-            total_txns = in_count + out_count
-            if total_txns > 0:
-                diversity_score = (in_diversity + out_diversity) / np.sqrt(total_txns)
-                self.graph.nodes[node]['diversity_index'] = min(diversity_score, 10.0)
-            else:
-                self.graph.nodes[node]['diversity_index'] = 0.0
+            self.graph.nodes[node]['total_in_degree'] = self.graph.in_degree(node)
+            self.graph.nodes[node]['total_out_degree'] = self.graph.out_degree(node)
+            self.graph.nodes[node]['total_transactions'] = account_txn_counts.get(node, 0)
+            self.graph.nodes[node]['suspicion_score'] = 0.0
+            self.graph.nodes[node]['detected_patterns'] = []
+            self.graph.nodes[node]['ring_id'] = None
     
     def _build_temporal_index(self) -> None:
-        """Build temporal index for sliding window queries"""
+        """Build temporal index for sliding window queries (vectorized for 10K+ rows)"""
         self.temporal_index = defaultdict(list)
-        
-        for _, row in self.transactions_df.iterrows():
-            timestamp = row['timestamp']
-            self.temporal_index[row['source_account']].append({
-                'timestamp': timestamp,
-                'type': 'outgoing',
-                'amount': row['amount'],
-                'counterparty': row['destination_account']
-            })
-            self.temporal_index[row['destination_account']].append({
-                'timestamp': timestamp,
-                'type': 'incoming',
-                'amount': row['amount'],
-                'counterparty': row['source_account']
-            })
-        
-        # Sort by timestamp
+        df = self.transactions_df
+        n = len(df)
+        # Batch append by account - use zip for fast iteration
+        src = df['source_account'].values
+        dst = df['destination_account'].values
+        ts = df['timestamp'].values
+        amt = df['amount'].values
+        for i in range(n):
+            s, d, t, a = src[i], dst[i], ts[i], amt[i]
+            self.temporal_index[s].append({'timestamp': t, 'type': 'outgoing', 'amount': a, 'counterparty': d})
+            self.temporal_index[d].append({'timestamp': t, 'type': 'incoming', 'amount': a, 'counterparty': s})
         for account in self.temporal_index:
             self.temporal_index[account].sort(key=lambda x: x['timestamp'])
     

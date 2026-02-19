@@ -48,6 +48,9 @@ class AMLPipeline:
         
         logger.info(f"Data cleaned: {len(cleaned_df)} valid transactions")
         
+        # Step 1.5: Normalize column names
+        cleaned_df = self._normalize_column_names(cleaned_df)
+        
         # Step 2: Build graph with temporal features
         self.graph_engine = TransactionGraphEngine()
         self.graph_engine.build_graph(cleaned_df)
@@ -90,13 +93,64 @@ class AMLPipeline:
         # Make a copy
         df = df.copy()
         
+        # Define column mapping for different formats
+        column_mapping = {
+            # Sender variations
+            'sender_id': 'source_account',
+            'source_account': 'source_account',
+            'from_account': 'source_account',
+            'sender': 'source_account',
+            
+            # Receiver variations  
+            'receiver_id': 'destination_account',
+            'destination_account': 'destination_account',
+            'to_account': 'destination_account',
+            'receiver': 'destination_account',
+            'beneficiary': 'destination_account',
+            
+            # Amount variations
+            'amount': 'amount',
+            'value': 'amount',
+            'transaction_amount': 'amount',
+            'sum': 'amount',
+            
+            # Transaction ID variations
+            'transaction_id': 'transaction_id',
+            'txn_id': 'transaction_id',
+            'id': 'transaction_id',
+            'transaction': 'transaction_id',
+            
+            # Timestamp variations
+            'timestamp': 'timestamp',
+            'date': 'timestamp',
+            'datetime': 'timestamp',
+            'time': 'timestamp',
+            'created_at': 'timestamp'
+        }
+        
         # Required columns
         required_cols = ['transaction_id', 'source_account', 'destination_account', 'amount', 'timestamp']
         
         # Check for missing columns
         missing_cols = set(required_cols) - set(df.columns)
         if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
+            # Try to map columns first
+            available_cols = set(df.columns)
+            mapped_cols = set()
+            
+            for required_col in required_cols:
+                # Find mapping in our column_mapping
+                for source_col, target_col in column_mapping.items():
+                    if target_col == required_col and source_col in available_cols:
+                        mapped_cols.add(target_col)
+                        break
+            
+            still_missing = set(required_cols) - mapped_cols
+            if still_missing:
+                raise ValueError(f"Missing required columns: {still_missing}. Available columns: {list(df.columns)}")
+            else:
+                # Apply mapping before validation
+                df = df.rename(columns=column_mapping)
         
         # Remove duplicates
         df = df.drop_duplicates(subset='transaction_id', keep='first')
@@ -119,6 +173,60 @@ class AMLPipeline:
         
         # Sort by timestamp
         df = df.sort_values('timestamp')
+        
+        return df
+    
+    def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize different CSV column formats to standard names
+        
+        Args:
+            df: DataFrame with various column naming conventions
+            
+        Returns:
+            DataFrame with standardized column names
+        """
+        df = df.copy()
+        
+        # Define column mapping for different formats
+        column_mapping = {
+            # Sender variations
+            'sender_id': 'source_account',
+            'source_account': 'source_account',
+            'from_account': 'source_account',
+            'sender': 'source_account',
+            
+            # Receiver variations  
+            'receiver_id': 'destination_account',
+            'destination_account': 'destination_account',
+            'to_account': 'destination_account',
+            'receiver': 'destination_account',
+            'beneficiary': 'destination_account',
+            
+            # Amount variations
+            'amount': 'amount',
+            'value': 'amount',
+            'transaction_amount': 'amount',
+            'sum': 'amount',
+            
+            # Transaction ID variations
+            'transaction_id': 'transaction_id',
+            'txn_id': 'transaction_id',
+            'id': 'transaction_id',
+            'transaction': 'transaction_id',
+            
+            # Timestamp variations
+            'timestamp': 'timestamp',
+            'date': 'timestamp',
+            'datetime': 'timestamp',
+            'time': 'timestamp',
+            'created_at': 'timestamp'
+        }
+        
+        # Apply mapping
+        df = df.rename(columns=column_mapping)
+        
+        logger.info(f"Normalized columns: {list(df.columns)}")
         
         return df
     

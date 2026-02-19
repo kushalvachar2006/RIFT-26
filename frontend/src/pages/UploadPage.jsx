@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
@@ -10,6 +10,34 @@ import { generateSampleCSV } from '../utils/sampleData'
 export default function UploadPage() {
   const navigate = useNavigate()
   const { setCsvFile, setCsvData, setProcessing, setProcessingProgress, setAnalysisResult, setError, isProcessing, processingProgress, csvFile, csvData, error } = useAMLStore()
+
+  // Memoize required columns validation - EXACT RIFT format
+  const requiredColumns = useMemo(() => [
+    'transaction_id',
+    'source_account',
+    'destination_account',
+    'amount',
+    'timestamp'
+  ], [])
+
+  const validateCSV = useCallback((data) => {
+    if (!data || data.length === 0) {
+      return { valid: false, error: 'CSV file is empty or invalid' }
+    }
+
+    const columns = Object.keys(data[0])
+    const missingColumns = requiredColumns.filter(col => !columns.includes(col))
+
+    if (missingColumns.length > 0) {
+      return {
+        valid: false,
+        error: `Missing required columns: ${missingColumns.join(', ')}. Required columns: transaction_id, source_account, destination_account, amount, timestamp`,
+        requiredColumns
+      }
+    }
+
+    return { valid: true }
+  }, [requiredColumns])
 
   const onDrop = useCallback((accepted, rejected) => {
     if (rejected.length > 0) {
@@ -24,10 +52,20 @@ export default function UploadPage() {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
+        const validation = validateCSV(results.data)
+        if (!validation.valid) {
+          setError(validation.error)
+          setCsvData([])
+          return
+        }
         setCsvData(results.data)
+      },
+      error: (error) => {
+        setError(`CSV parsing error: ${error.message}`)
+        setCsvData([])
       }
     })
-  }, [])
+  }, [validateCSV])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -41,30 +79,49 @@ export default function UploadPage() {
       return
     }
 
+    // Check file size for 10K transaction limit
+    const fileSizeMB = csvFile.size / (1024 * 1024)
+    if (fileSizeMB > 50) { // 50MB limit for safety
+      setError('File too large. Maximum 50MB allowed for optimal performance.')
+      return
+    }
+
     setProcessing(true)
     setProcessingProgress(0)
     setError(null)
 
+    const startTime = Date.now()
+    const txnCount = csvData?.length || 0
+    const isLarge = txnCount >= 5000
+    let progressInterval
     try {
-      // Call the real backend API
+      progressInterval = setInterval(() => {
+        setProcessingProgress((p) => (p >= 90 ? p : Math.min(p + (isLarge ? 3 : 5), 90)))
+      }, isLarge ? 2000 : 1500)
       const result = await uploadCSV(csvFile, (progress) => {
-        // Update progress during upload
-        setProcessingProgress(Math.min(progress, 95)) // Cap at 95% until complete
+        setProcessingProgress(Math.min(progress, 95))
       })
+      if (progressInterval) clearInterval(progressInterval)
 
-      // Simulate final processing steps
+      // Calculate actual processing time
+      const processingTime = ((Date.now() - startTime) / 1000).toFixed(2)
+
+      // Final progress
       setProcessingProgress(100)
-      
+
       // Set the result from backend
       setAnalysisResult(result)
       setProcessing(false)
-      
-      // Navigate to dashboard
-      setTimeout(() => navigate('/dashboard'), 300)
-      
+
+      // Show processing time in console for monitoring
+      console.log(`RIFT Processing completed in ${processingTime}s for ${csvData.length} transactions`)
+
+      // Navigate to dashboard after successful processing
+      setTimeout(() => navigate('/dashboard'), 1500)
+
     } catch (error) {
-      console.error('Detection failed:', error)
-      setError(error.response?.data?.detail || error.message || 'Analysis failed. Please check backend is running.')
+      if (progressInterval) clearInterval(progressInterval)
+      setError(error.message || 'Detection failed. Please try again.')
       setProcessing(false)
       setProcessingProgress(0)
     }
@@ -78,7 +135,12 @@ export default function UploadPage() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => setCsvData(results.data)
+      complete: (results) => {
+        const validation = validateCSV(results.data)
+        if (validation.valid) {
+          setCsvData(results.data)
+        }
+      }
     })
   }
 
@@ -126,11 +188,10 @@ export default function UploadPage() {
           {/* Dropzone */}
           <div
             {...getRootProps()}
-            className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${
-              isDragActive
-                ? 'border-neon-blue bg-neon-blue/10 shadow-neon-blue'
-                : 'border-slate-600 hover:border-neon-blue/50 hover:bg-neon-blue/5'
-            }`}
+            className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${isDragActive
+              ? 'border-neon-blue bg-neon-blue/10 shadow-neon-blue'
+              : 'border-slate-600 hover:border-neon-blue/50 hover:bg-neon-blue/5'
+              }`}
           >
             <input {...getInputProps()} />
             <motion.div animate={{ y: isDragActive ? -8 : 0 }} transition={{ duration: 0.3 }}>
@@ -145,7 +206,22 @@ export default function UploadPage() {
                 <>
                   <p className="text-white font-body text-lg mb-2">Drag & Drop Transaction CSV</p>
                   <p className="text-slate-500 font-mono text-xs tracking-widest">OR CLICK TO SELECT FILE</p>
-                  <p className="text-slate-600 text-xs mt-3">Accepts .CSV format only · Up to 10,000 transactions</p>
+                  <p className="text-slate-600 text-xs mt-3">
+                    Accepts .CSV format only • Up to 10,000 transactions
+                  </p>
+                  <div className="mt-2 p-2 rounded bg-slate-800/50 border border-slate-700">
+                    <p className="text-xs font-mono text-slate-400 mb-1">Required columns:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {requiredColumns.map(col => (
+                        <span key={col} className="text-xs font-mono bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">
+                          {col}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Exact format: transaction_id, source_account, destination_account, amount, timestamp
+                    </p>
+                  </div>
                 </>
               )}
             </motion.div>
@@ -168,7 +244,9 @@ export default function UploadPage() {
                   </div>
                   <div>
                     <p className="text-sm font-mono text-white">{csvFile.name}</p>
-                    <p className="text-xs text-slate-400 font-mono">{csvData.length} transactions detected</p>
+                    <p className="text-xs text-slate-400 font-mono">
+                      {csvData.length} transactions detected • Processing time: ≤30 seconds
+                    </p>
                   </div>
                 </div>
                 <span className="risk-badge-low">READY</span>
