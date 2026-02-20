@@ -23,11 +23,15 @@ app = FastAPI(
 )
 
 # Load environment variables
-FRONTEND_URLS = os.getenv("FRONTEND_URLS", "https://localhost:3000")
-NODE_ENV = os.getenv("NODE_ENV", "development")
+FRONTEND_URLS = os.getenv("FRONTEND_URLS", "https://rift-aml-frontend.onrender.com,https://localhost:3000")
+NODE_ENV = os.getenv("NODE_ENV", "production")
 
 # Parse frontend URLs for CORS
 frontend_origins = [url.strip() for url in FRONTEND_URLS.split(",") if url.strip()]
+
+# Ensure Render frontend is always allowed
+if "https://rift-aml-frontend.onrender.com" not in frontend_origins:
+    frontend_origins.append("https://rift-aml-frontend.onrender.com")
 
 # Production CORS configuration using environment variables
 app.add_middleware(
