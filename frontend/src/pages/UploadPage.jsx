@@ -165,10 +165,10 @@ export default function UploadPage() {
           <p className="font-mono text-sm text-neon-blue/70 tracking-[4px] uppercase">FinGuard AI · v2.4.1</p>
           <div className="w-2 h-8 bg-neon-blue rounded-full shadow-neon-blue" />
         </div>
-        <h1 className="font-display text-5xl md:text-6xl font-black text-white mb-4 leading-tight" data-text="MONEY MULE DETECTION">
-          <span className="text-white">AI-POWERED</span>
+        <h1 className="font-display text-5xl md:text-6xl font-black text-white mb-4 leading-tight" data-text="FINANCIAL CRIME DETECTION">
+          <span className="text-white">GRAPH BASED</span>
           <br />
-          <span className="neon-text animate-glow">MONEY MULE</span>
+          <span className="neon-text animate-glow">FINANCIAL CRIME</span>
           <br />
           <span className="text-white">DETECTION ENGINE</span>
         </h1>
