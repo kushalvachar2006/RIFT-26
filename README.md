@@ -1,14 +1,17 @@
-# 🔍 RIFT 2026 - Graph-Based Money Muling Detection Engine
+# 🔍 RIFT 2026 - Graph-Based Financial Crime Detection Engine
 
 **RIFT 2026 Hackathon Submission** | Graph Theory / Financial Crime Detection Track
 
-A production-grade Anti-Money Laundering (AML) detection system using graph intelligence, temporal analysis, and risk propagation to identify sophisticated money muling networks and financial crime patterns.
+A production-grade Anti-Money Laundering (AML) detection system using graph intelligence, temporal analysis, and risk propagation to identify sophisticated financial crime networks and money laundering patterns.
 
 ## 🌐 Live Demo
 
-**⚠️ Live Demo URL**: [Deploy to Vercel/Netlify/Railway and update this URL]
+**🚀 Frontend**: [https://rift-aml-frontend.onrender.com](https://rift-aml-frontend.onrender.com)
+**🔧 Backend API**: [https://rift-26-api.onrender.com](https://rift-26-api.onrender.com)
+**📖 API Docs**: [https://rift-26-api.onrender.com/docs](https://rift-26-api.onrender.com/docs)
+**💚 Health Check**: [https://rift-26-api.onrender.com/health](https://rift-26-api.onrender.com/health)
 
-*Note: Application must be publicly accessible with CSV upload functionality on homepage.*
+*Note: Application is publicly accessible with CSV upload functionality on homepage.*
 
 ![System Architecture](https://img.shields.io/badge/Architecture-Microservices-blue)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-green)
@@ -118,13 +121,20 @@ docker-compose up
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **Frontend** | http://localhost:5173 | Main web application |
-| **Backend API** | http://localhost:8000 | REST API endpoints |
-| **API Docs** | http://localhost:8000/docs | Interactive Swagger docs |
-| **Health Check** | http://localhost:8000/health | Service status |
+| **Frontend** | https://rift-aml-frontend.onrender.com | Main web application |
+| **Backend API** | https://rift-26-api.onrender.com | REST API endpoints |
+| **API Docs** | https://rift-26-api.onrender.com/docs | Interactive Swagger docs |
+| **Health Check** | https://rift-26-api.onrender.com/health | Service status |
 
 ## 🧪 Testing the System
 
+### Live Testing (Production)
+1. **Visit frontend** at https://rift-aml-frontend.onrender.com
+2. **Upload CSV file** with transaction data
+3. **View results** in the dashboard
+4. **Check API health** at https://rift-26-api.onrender.com/health
+
+### Local Development
 1. **Start both services** (see Quick Start above)
 2. **Open frontend** at http://localhost:5173
 3. **Upload CSV file** with transaction data
