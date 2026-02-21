@@ -6,7 +6,7 @@ A production-grade Anti-Money Laundering (AML) detection system using graph inte
 
 ## 🌐 Live Demo
 
-**🚀 Frontend**: [https://rift-aml-frontend.onrender.com](https://rift-aml-frontend.onrender.com)
+**🚀 Frontend**: [https://rift-aml-frontend-eilt.onrender.com](https://rift-aml-frontend-eilt.onrender.com)
 **🔧 Backend API**: [https://rift-26-api.onrender.com](https://rift-26-api.onrender.com)
 **📖 API Docs**: [https://rift-26-api.onrender.com/docs](https://rift-26-api.onrender.com/docs)
 **💚 Health Check**: [https://rift-26-api.onrender.com/health](https://rift-26-api.onrender.com/health)
@@ -121,7 +121,7 @@ docker-compose up
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **Frontend** | https://rift-aml-frontend.onrender.com | Main web application |
+| **Frontend** | https://rift-aml-frontend-eilt.onrender.com | Main web application |
 | **Backend API** | https://rift-26-api.onrender.com | REST API endpoints |
 | **API Docs** | https://rift-26-api.onrender.com/docs | Interactive Swagger docs |
 | **Health Check** | https://rift-26-api.onrender.com/health | Service status |
@@ -129,7 +129,7 @@ docker-compose up
 ## 🧪 Testing the System
 
 ### Live Testing (Production)
-1. **Visit frontend** at https://rift-aml-frontend.onrender.com
+1. **Visit frontend** at https://rift-aml-frontend-eilt.onrender.com
 2. **Upload CSV file** with transaction data
 3. **View results** in the dashboard
 4. **Check API health** at https://rift-26-api.onrender.com/health
